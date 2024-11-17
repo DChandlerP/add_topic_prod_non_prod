@@ -1,0 +1,78 @@
+import os
+import time
+from github import Github
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Constants
+GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')  # Ensure this is set in your .env file
+ORGANIZATION_NAME = os.getenv('ORGANIZATION_NAME')  # Set your organization name in .env
+TOPIC_REQUIRED = ['production', 'non-production']
+RATE_LIMIT_THRESHOLD = 10  # Number of requests remaining to trigger a pause
+
+def get_github_client():
+    """ Create a GitHub client using an access token. """
+    return Github(GITHUB_TOKEN)
+
+def fetch_repositories(organization):
+    """ Fetch all repositories in the given organization. """
+    return organization.get_repos()
+
+def check_topics(repository):
+    """ Check if the repository has the required topics. """
+    topics = repository.get_topics()
+    return any(topic in topics for topic in TOPIC_REQUIRED)
+
+def list_repositories_without_required_topics(repositories):
+    """ Return a list of repositories missing the required topics. """
+    repos_missing_topics = []
+    for repo in repositories:
+        if not check_topics(repo):
+            repos_missing_topics.append(repo)
+    return repos_missing_topics
+
+def handle_rate_limiting(github_client):
+    """ Pause the script if nearing the GitHub rate limit. """
+    rate_limit = github_client.get_rate_limit().core
+    if rate_limit.remaining < RATE_LIMIT_THRESHOLD:
+        reset_time = rate_limit.reset.timestamp()
+        current_time = time.time()
+        sleep_duration = reset_time - current_time
+        print(f"Rate limit nearing. Sleeping for {int(sleep_duration)} seconds.")
+        time.sleep(max(sleep_duration, 0))
+
+def open_issue_on_repos(repos, github_client):
+    """ Ask the user to confirm opening an issue for each repository missing topics. """
+    for repo in repos:
+        print(f"Would you like to open an issue on {repo.full_name}? (y/n)")
+        if input().strip().lower() == 'y':
+            create_topic_issue(repo, github_client)
+
+def create_topic_issue(repo, github_client):
+    """ Create an issue on the repository to add required topics. """
+    issue_title = "Please add a topic"
+    issue_body = ("This repository is missing the required GitHub topics 'production' or 'non-production'. "
+                  "Please add one of these topics to the repository settings. "
+                  "For more information on how to add topics, visit: "
+                  "https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/classifying-your-repository-with-topics")
+    repo.create_issue(title=issue_title, body=issue_body)
+    print(f"Issue created on {repo.full_name}")
+
+def main():
+    """ Main function to orchestrate the script execution. """
+    github_client = get_github_client()
+    organization = github_client.get_organization(ORGANIZATION_NAME)
+    
+    repositories = fetch_repositories(organization)
+    repos_without_topics = list_repositories_without_required_topics(repositories)
+    
+    if not repos_without_topics:
+        print("All repositories have the required topics.")
+    else:
+        print(f"Found {len(repos_without_topics)} repositories without the required topics.")
+        open_issue_on_repos(repos_without_topics, github_client)
+
+if __name__ == "__main__":
+    main()

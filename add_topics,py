@@ -56,17 +56,29 @@ def handle_rate_limiting():
         print(f"Rate limit nearing. Sleeping for {int(sleep_duration)} seconds.")
         time.sleep(max(sleep_duration, 0))
 
+def issue_exists(repo, title):
+    """ Check if an issue with the given title already exists in the repository. """
+    url = f"{GITHUB_API_URL}/repos/{ORGANIZATION_NAME}/{repo['name']}/issues"
+    params = {'state': 'all', 'per_page': 100}
+    response = requests.get(url, headers=get_headers(), params=params)
+    response.raise_for_status()
+    issues = response.json()
+    return any(issue['title'] == title for issue in issues)
+
 def open_issue_on_repos(repos):
     """ Ask the user to confirm opening an issue for each repository missing topics. """
     for repo in repos:
+        issue_title = "Please add a topic"
+        if issue_exists(repo, issue_title):
+            print(f"Issue with title '{issue_title}' already exists in {repo['full_name']}.")
+            continue
         print(f"Would you like to open an issue on {repo['full_name']}? (y/n)")
         if input().strip().lower() == 'y':
-            create_topic_issue(repo)
+            create_topic_issue(repo, issue_title)
 
-def create_topic_issue(repo):
+def create_topic_issue(repo, issue_title):
     """ Create an issue on the repository to add required topics. """
     url = f"{GITHUB_API_URL}/repos/{ORGANIZATION_NAME}/{repo['name']}/issues"
-    issue_title = "Please add a topic"
     issue_body = ("This repository is missing the required GitHub topics 'production' or 'non-production'. "
                   "Please add one of these topics to the repository settings. "
                   "For more information on how to add topics, visit: "
